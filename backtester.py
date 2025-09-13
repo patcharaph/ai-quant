@@ -6,13 +6,39 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 import warnings
+import logging
 warnings.filterwarnings('ignore')
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class SignalGenerator:
     """Generate trading signals based on predictions"""
     
     def __init__(self, config=None):
         self.config = config or {}
+        self.trade_ledger = []
+        self.entry_exit_rules = {
+            'A': {
+                'name': 'Simple Long Strategy',
+                'entry_rule': 'predicted_return >= 0',
+                'exit_rule': 'predicted_return < 0 or end_of_period',
+                'description': 'Buy when AI predicts positive return, sell when negative'
+            },
+            'B': {
+                'name': 'Target Return Strategy', 
+                'entry_rule': 'predicted_return >= target_return',
+                'exit_rule': 'predicted_return < target_return or end_of_period',
+                'description': 'Buy when AI predicts return >= target, sell when below target'
+            },
+            'C': {
+                'name': 'Probability-Based Strategy',
+                'entry_rule': 'hit_probability >= p_min',
+                'exit_rule': 'hit_probability < p_min or end_of_period', 
+                'description': 'Buy when hit probability >= threshold, sell when below threshold'
+            }
+        }
     
     def generate_signals(self, predictions, prices, scheme='A', target_return=None, p_min=None):
         """
@@ -99,6 +125,12 @@ class Backtester:
         portfolio_value = 10000  # Starting capital
         cash = portfolio_value
         
+        # Log backtest configuration
+        logger.info(f"🚀 Starting backtest: scheme={scheme}, horizon={horizon_days}")
+        logger.info(f"📊 Entry/Exit Rules: {self.entry_exit_rules.get(scheme, {})}")
+        logger.info(f"💰 Starting capital: ${portfolio_value:,.2f}")
+        logger.info(f"💸 Transaction costs: fee={self.fee_bp}bp, slippage={self.slippage_bp}bp")
+        
         for i, (date, row) in enumerate(signals.iterrows()):
             current_price = row['price']
             signal = row['signal']
@@ -169,8 +201,9 @@ class Backtester:
         return trades_df, equity_df, metrics
     
     def _create_trade(self, entry_date, exit_date, entry_price, exit_price, 
-                     position, fee_bp, slippage_bp):
-        """Create a trade record"""
+                     position, fee_bp, slippage_bp, signal_scheme=None, 
+                     predicted_return=None, hit_probability=None):
+        """Create a detailed trade record with entry/exit reasoning"""
         # Calculate costs
         entry_cost = entry_price * (1 + fee_bp/10000 + slippage_bp/10000)
         exit_cost = exit_price * (1 - fee_bp/10000 - slippage_bp/10000)
@@ -179,7 +212,8 @@ class Backtester:
         gross_return = (exit_cost - entry_cost) / entry_cost
         net_return = gross_return  # Costs already included
         
-        return {
+        # Create detailed trade record
+        trade_record = {
             'entry_date': entry_date,
             'exit_date': exit_date,
             'entry_price': entry_price,
@@ -188,8 +222,23 @@ class Backtester:
             'gross_return': gross_return,
             'net_return': net_return,
             'return_pct': net_return * 100,
-            'holding_days': (exit_date - entry_date).days
+            'holding_days': (exit_date - entry_date).days,
+            'entry_cost': entry_cost,
+            'exit_cost': exit_cost,
+            'fee_bp': fee_bp,
+            'slippage_bp': slippage_bp,
+            'signal_scheme': signal_scheme,
+            'predicted_return': predicted_return,
+            'hit_probability': hit_probability,
+            'entry_reason': self.entry_exit_rules.get(signal_scheme, {}).get('entry_rule', 'N/A'),
+            'exit_reason': self.entry_exit_rules.get(signal_scheme, {}).get('exit_rule', 'N/A')
         }
+        
+        # Add to trade ledger
+        self.trade_ledger.append(trade_record)
+        logger.info(f"📝 Trade logged: {entry_date} -> {exit_date}, Return: {net_return*100:.2f}%")
+        
+        return trade_record
     
     def _update_portfolio(self, portfolio_value, trade, position):
         """Update portfolio value after trade"""

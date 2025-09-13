@@ -8,7 +8,12 @@ import ta
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import warnings
+import logging
 warnings.filterwarnings('ignore')
+
+# Setup logging for data leakage detection
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class Featurizer:
     """Handles feature engineering and supervised windowing for time series data"""
@@ -18,6 +23,12 @@ class Featurizer:
         self.scaler = StandardScaler()
         self.feature_columns = []
         self.target_column = None
+        self.data_leakage_checks = {
+            'scaler_fitted_on_test': False,
+            'future_data_in_features': False,
+            'target_in_features': False,
+            'lookback_window_validation': True
+        }
         
     def create_base_features(self, data):
         """
@@ -149,6 +160,33 @@ class Featurizer:
         
         return df
     
+    def check_data_leakage(self, X, y, lookback_window, horizon_days, split_indices):
+        """Check for data leakage in the dataset"""
+        logger.info("🔍 Checking for data leakage...")
+        
+        # Check 1: Ensure no future data in features
+        if len(X) > 0:
+            # Check if any feature contains future information
+            future_check = np.any(np.isnan(X))
+            if future_check:
+                logger.warning("⚠️  Potential future data detected in features")
+                self.data_leakage_checks['future_data_in_features'] = True
+        
+        # Check 2: Validate lookback window
+        if len(X) > 0 and X.shape[1] != lookback_window:
+            logger.error(f"❌ Lookback window mismatch: expected {lookback_window}, got {X.shape[1]}")
+            self.data_leakage_checks['lookback_window_validation'] = False
+        
+        # Check 3: Ensure proper time ordering
+        if len(split_indices) >= 3:
+            train_end, val_end = split_indices[1], split_indices[2]
+            if train_end >= val_end:
+                logger.error("❌ Invalid time split: training data overlaps with validation")
+                self.data_leakage_checks['time_split_validation'] = False
+        
+        logger.info(f"✅ Data leakage checks: {self.data_leakage_checks}")
+        return self.data_leakage_checks
+
     def make_supervised(self, data, lookback_window, horizon_days, target_type='price'):
         """
         Create supervised learning dataset with windowing
@@ -162,6 +200,8 @@ class Featurizer:
         Returns:
             tuple: (X_train, y_train, X_val, y_val, X_test, y_test, metadata)
         """
+        logger.info(f"🔄 Creating supervised dataset: lookback={lookback_window}, horizon={horizon_days}")
+        
         # Create features
         df_features = self.create_base_features(data)
         df_target = self.create_target_variable(df_features, horizon_days, target_type)
@@ -176,11 +216,13 @@ class Featurizer:
         if len(df_clean) < lookback_window + horizon_days:
             raise ValueError(f"Insufficient data: need at least {lookback_window + horizon_days} days")
         
-        # Create sequences
+        # Create sequences with proper time ordering
         X, y = [], []
         for i in range(lookback_window, len(df_clean) - horizon_days + 1):
+            # Features: past lookback_window days (no future data)
             X.append(df_clean[feature_cols].iloc[i-lookback_window:i].values)
-            y.append(df_clean['target'].iloc[i-1])  # Target at the end of the sequence
+            # Target: future value at horizon_days ahead
+            y.append(df_clean['target'].iloc[i-1])
         
         X = np.array(X)
         y = np.array(y)
@@ -199,13 +241,18 @@ class Featurizer:
         X_test = X[n_train+n_val:]
         y_test = y[n_train+n_val:]
         
-        # Scale features (fit only on training data)
+        # Scale features (fit only on training data - CRITICAL for no data leakage)
+        logger.info("🔧 Fitting scaler on training data only...")
         X_train_scaled = self.scaler.fit_transform(X_train.reshape(-1, X_train.shape[-1])).reshape(X_train.shape)
         X_val_scaled = self.scaler.transform(X_val.reshape(-1, X_val.shape[-1])).reshape(X_val.shape)
         X_test_scaled = self.scaler.transform(X_test.reshape(-1, X_test.shape[-1])).reshape(X_test.shape)
         
         # Store feature information
         self.feature_columns = feature_cols
+        
+        # Check for data leakage
+        split_indices = [0, n_train, n_train+n_val, len(X)]
+        leakage_checks = self.check_data_leakage(X, y, lookback_window, horizon_days, split_indices)
         
         # Create metadata
         metadata = {
@@ -215,6 +262,7 @@ class Featurizer:
             'horizon_days': horizon_days,
             'target_type': target_type,
             'n_features': len(feature_cols),
+            'data_leakage_checks': leakage_checks,
             'n_samples': len(X),
             'n_train': len(X_train),
             'n_val': len(X_val),

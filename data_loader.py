@@ -7,6 +7,8 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
 import warnings
+import pytz
+import re
 warnings.filterwarnings('ignore')
 
 class DataLoader:
@@ -14,27 +16,53 @@ class DataLoader:
     
     def __init__(self):
         self.data_cache = {}
+        self.bangkok_tz = pytz.timezone('Asia/Bangkok')
+        self.valid_symbols = {
+            # Thai stocks
+            'SET.BK', 'SET50.BK', 'PTT.BK', 'SCB.BK', 'KBANK.BK', 
+            'CPALL.BK', 'ADVANC.BK', 'AOT.BK', 'BDMS.BK', 'CPF.BK',
+            # US stocks (with .BK suffix for Thai market)
+            'AAPL.BK', 'GOOGL.BK', 'MSFT.BK', 'TSLA.BK', 'AMZN.BK', 'META.BK'
+        }
     
+    def validate_symbol(self, symbol):
+        """Validate and normalize stock symbol"""
+        # Remove any existing .BK suffix
+        base_symbol = symbol.replace('.BK', '')
+        
+        # Add .BK suffix for Thai market
+        normalized_symbol = f"{base_symbol}.BK"
+        
+        # Check if symbol is in valid list
+        if normalized_symbol not in self.valid_symbols:
+            print(f"Warning: {normalized_symbol} not in predefined valid symbols list")
+            print(f"Valid symbols: {', '.join(sorted(self.valid_symbols))}")
+        
+        return normalized_symbol
+
     def fetch_ohlcv(self, symbol, start_date=None, end_date=None, interval="1d"):
         """
         Fetch OHLCV data for a given symbol
         
         Args:
-            symbol (str): Stock symbol (e.g., 'AAPL', 'GOOGL')
+            symbol (str): Stock symbol (e.g., 'AAPL', 'GOOGL') - will be normalized to .BK
             start_date (str): Start date in YYYY-MM-DD format
             end_date (str): End date in YYYY-MM-DD format
             interval (str): Data interval (1d, 1h, etc.)
             
         Returns:
-            pd.DataFrame: OHLCV data with datetime index
+            pd.DataFrame: OHLCV data with datetime index in Asia/Bangkok timezone
         """
         try:
+            # Validate and normalize symbol
+            symbol = self.validate_symbol(symbol)
+            
             # Set default dates if not provided
             if end_date is None:
-                end_date = datetime.now().strftime('%Y-%m-%d')
+                end_date = datetime.now(self.bangkok_tz).strftime('%Y-%m-%d')
             
             if start_date is None:
-                start_date = (datetime.now() - timedelta(days=20*365)).strftime('%Y-%m-%d')
+                start_date = (datetime.now(self.bangkok_tz) - timedelta(days=20*365)).strftime('%Y-%m-%d')
             
             # Check cache first
             cache_key = f"{symbol}_{start_date}_{end_date}_{interval}"
@@ -58,9 +86,16 @@ class DataLoader:
             # Clean column names
             data.columns = [col.lower() for col in data.columns]
             
-            # Remove timezone info if present
+            # Convert to Asia/Bangkok timezone
             if hasattr(data.index, 'tz') and data.index.tz is not None:
-                data.index = data.index.tz_localize(None)
+                data.index = data.index.tz_convert(self.bangkok_tz)
+            else:
+                data.index = data.index.tz_localize('UTC').tz_convert(self.bangkok_tz)
+            
+            # Add timezone info to metadata
+            data.attrs['timezone'] = 'Asia/Bangkok'
+            data.attrs['symbol'] = symbol
+            data.attrs['fetched_at'] = datetime.now(self.bangkok_tz).isoformat()
             
             # Cache the data
             self.data_cache[cache_key] = data.copy()

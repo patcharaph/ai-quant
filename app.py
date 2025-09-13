@@ -1025,6 +1025,30 @@ class AIQuantApp:
             st.markdown("## 📋 Recent Trades")
             recent_trades = trades_df.tail(10)
             st.dataframe(recent_trades, use_container_width=True)
+        
+        # Legal Disclaimer
+        st.markdown("---")
+        st.markdown("### ⚠️ Important Legal Disclaimer")
+        st.markdown("""
+        <div style="background-color: #ffebee; padding: 15px; border-radius: 10px; border-left: 5px solid #f44336;">
+        <h4 style="color: #c62828; margin-top: 0;">🚨 Investment Risk Warning</h4>
+        <p style="color: #424242; margin-bottom: 10px;">
+        <strong>This application is for educational and research purposes only.</strong> 
+        It is NOT intended for actual trading or investment decisions.
+        </p>
+        <ul style="color: #424242; margin-bottom: 10px;">
+        <li>All predictions and analysis are for informational purposes only</li>
+        <li>Past performance does not guarantee future results</li>
+        <li>Stock prices are highly volatile and unpredictable</li>
+        <li>AI models can make errors and should not be relied upon</li>
+        <li>Always consult with qualified financial professionals</li>
+        </ul>
+        <p style="color: #424242; margin-bottom: 0;">
+        <strong>By using this application, you acknowledge and accept all risks.</strong>
+        The authors and contributors are not responsible for any financial losses.
+        </p>
+        </div>
+        """, unsafe_allow_html=True)
 
 def main():
     """Main function"""

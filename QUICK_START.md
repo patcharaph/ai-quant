@@ -7,22 +7,43 @@
 
 ## ⚡ Quick Setup
 
-### Option 1: Automated Setup
-```bash
-python setup.py
-```
+### Windows Setup (Recommended)
+```powershell
+# 1. Create virtual environment
+python -m venv ai-quant-env
+ai-quant-env\Scripts\activate
 
-### Option 2: Manual Setup
-```bash
-# 1. Install dependencies
+# 2. Install dependencies (CPU-only, pinned versions)
 pip install -r requirements.txt
 
-# 2. Setup environment (optional)
+# 3. Setup environment (optional)
+copy env_example.txt .env
+# Edit .env and add your OpenRouter API key
+
+# 4. Run the application
+streamlit run app.py
+```
+
+### Linux/macOS Setup
+```bash
+# 1. Create virtual environment
+python3 -m venv ai-quant-env
+source ai-quant-env/bin/activate
+
+# 2. Install dependencies (CPU-only, pinned versions)
+pip install -r requirements.txt
+
+# 3. Setup environment (optional)
 cp env_example.txt .env
 # Edit .env and add your OpenRouter API key
 
-# 3. Run the application
+# 4. Run the application
 streamlit run app.py
+```
+
+### Option 3: Automated Setup
+```bash
+python setup.py
 ```
 
 ## 🎯 First Steps
