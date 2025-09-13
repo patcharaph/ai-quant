@@ -60,14 +60,19 @@ def main():
     print("\nChoose application to run:")
     print("1. Main AI Quant App (app.py)")
     print("2. UI Demo (ui_demo.py)")
-    print("3. Mock Data Test (test_mock.py)")
+    print("3. Black Theme Demo (black_theme_demo.py)")
+    print("4. Mock Data Test (test_mock.py)")
+    print("5. Demo with Real Data (demo.py)")
     
-    choice = input("\nEnter choice (1-3) [default: 1]: ").strip()
+    choice = input("\nEnter choice (1-5) [default: 1]: ").strip()
     
     if choice == "2":
         app_file = "ui_demo.py"
         print("🎨 Launching UI Demo...")
     elif choice == "3":
+        app_file = "black_theme_demo.py"
+        print("🌙 Launching Black Theme Demo...")
+    elif choice == "4":
         print("🧪 Running Mock Data Test...")
         try:
             subprocess.run([sys.executable, 'test_mock.py'])
@@ -75,6 +80,15 @@ def main():
             print("\n👋 Test stopped by user.")
         except Exception as e:
             print(f"❌ Error running test: {e}")
+        return
+    elif choice == "5":
+        print("📊 Running Demo with Real Data...")
+        try:
+            subprocess.run([sys.executable, 'demo.py'])
+        except KeyboardInterrupt:
+            print("\n👋 Demo stopped by user.")
+        except Exception as e:
+            print(f"❌ Error running demo: {e}")
         return
     else:
         app_file = "app.py"

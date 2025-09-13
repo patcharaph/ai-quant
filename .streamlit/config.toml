@@ -1,9 +1,9 @@
 [theme]
 # Primary colors
-primaryColor = "#1a1a1a"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#fafafa"
-textColor = "#1a1a1a"
+primaryColor = "#00d4ff"
+backgroundColor = "#0a0a0a"
+secondaryBackgroundColor = "#1a1a1a"
+textColor = "#ffffff"
 
 # Font
 font = "Inter"

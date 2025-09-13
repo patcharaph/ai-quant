@@ -33,110 +33,113 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS - Cute Pastel Theme
+# Custom CSS - Dark Professional Theme
 st.markdown("""
 <style>
     /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
     /* Global Styles */
     .stApp {
-        background: linear-gradient(135deg, #ffeef8 0%, #f0f8ff 100%);
-        font-family: 'Poppins', sans-serif;
+        background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+        font-family: 'Inter', sans-serif;
+        color: #ffffff;
     }
     
     /* Main Header */
     .main-header {
         font-size: 2.8rem;
         font-weight: 700;
-        background: linear-gradient(45deg, #ff6b9d, #4ecdc4, #45b7d1);
+        background: linear-gradient(45deg, #00d4ff, #00ff88, #ff6b35);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
         text-align: center;
         margin-bottom: 2rem;
         letter-spacing: -0.02em;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
     
     /* Sidebar Styling */
     .css-1d391kg {
-        background: linear-gradient(180deg, #fff0f5 0%, #f0f8ff 100%);
-        border-right: 2px solid #ffb3d1;
-        box-shadow: 2px 0 10px rgba(255, 179, 209, 0.3);
+        background: linear-gradient(180deg, #1a1a1a 0%, #2d2d2d 100%);
+        border-right: 2px solid #00d4ff;
+        box-shadow: 2px 0 15px rgba(0, 212, 255, 0.3);
     }
     
     .css-1d391kg .stSelectbox > div > div {
-        background-color: #ffffff;
-        border: 2px solid #ffb3d1;
-        border-radius: 15px;
-        box-shadow: 0 2px 8px rgba(255, 179, 209, 0.2);
+        background-color: #2d2d2d;
+        border: 2px solid #00d4ff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.2);
+        color: #ffffff;
     }
     
     .css-1d391kg .stTextInput > div > div > input {
-        background-color: #ffffff;
-        border: 2px solid #ffb3d1;
-        border-radius: 15px;
-        box-shadow: 0 2px 8px rgba(255, 179, 209, 0.2);
-        color: #2d3748;
+        background-color: #2d2d2d;
+        border: 2px solid #00d4ff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.2);
+        color: #ffffff;
         font-weight: 500;
     }
     
     .css-1d391kg .stButton > button {
-        background: linear-gradient(45deg, #ff9a9e, #fecfef);
-        color: #2d3748;
-        border: 2px solid #ffb3d1;
-        border-radius: 15px;
+        background: linear-gradient(45deg, #2d2d2d, #404040);
+        color: #ffffff;
+        border: 2px solid #00d4ff;
+        border-radius: 12px;
         font-weight: 600;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(255, 179, 209, 0.3);
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.3);
     }
     
     .css-1d391kg .stButton > button:hover {
-        background: linear-gradient(45deg, #ff8a9e, #fecfef);
-        border-color: #ff9ac4;
+        background: linear-gradient(45deg, #404040, #555555);
+        border-color: #00ff88;
         transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(255, 179, 209, 0.4);
+        box-shadow: 0 6px 16px rgba(0, 255, 136, 0.4);
     }
     
     /* Primary Button */
     .css-1d391kg .stButton > button[kind="primary"] {
-        background: linear-gradient(45deg, #ff6b9d, #4ecdc4);
-        color: #ffffff;
-        border: 2px solid #ff6b9d;
+        background: linear-gradient(45deg, #00d4ff, #00ff88);
+        color: #000000;
+        border: 2px solid #00d4ff;
         font-weight: 700;
     }
     
     .css-1d391kg .stButton > button[kind="primary"]:hover {
-        background: linear-gradient(45deg, #ff5a8d, #3ebcb4);
-        border-color: #ff5a8d;
+        background: linear-gradient(45deg, #00b8e6, #00e677);
+        border-color: #00ff88;
         transform: translateY(-2px);
     }
     
     /* Secondary Button */
     .css-1d391kg .stButton > button[kind="secondary"] {
-        background: linear-gradient(45deg, #a8edea, #fed6e3);
-        color: #2d3748;
-        border: 2px solid #4ecdc4;
+        background: linear-gradient(45deg, #2d2d2d, #404040);
+        color: #ffffff;
+        border: 2px solid #ff6b35;
         font-weight: 600;
     }
     
     .css-1d391kg .stButton > button[kind="secondary"]:hover {
-        background: linear-gradient(45deg, #98e5e2, #fec6d3);
-        border-color: #3ebcb4;
+        background: linear-gradient(45deg, #404040, #555555);
+        border-color: #ff8c42;
         transform: translateY(-2px);
     }
     
     /* Metric Cards */
     .metric-card {
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
+        background: linear-gradient(135deg, #2d2d2d 0%, #404040 100%);
         padding: 1.5rem;
-        border-radius: 20px;
-        border: 3px solid #ffb3d1;
-        box-shadow: 0 8px 25px rgba(255, 179, 209, 0.3);
+        border-radius: 15px;
+        border: 2px solid #00d4ff;
+        box-shadow: 0 8px 25px rgba(0, 212, 255, 0.3);
         transition: all 0.3s ease;
         position: relative;
         overflow: hidden;
+        color: #ffffff;
     }
     
     .metric-card::before {
@@ -146,25 +149,26 @@ st.markdown("""
         left: 0;
         right: 0;
         height: 4px;
-        background: linear-gradient(90deg, #ff6b9d, #4ecdc4, #45b7d1);
+        background: linear-gradient(90deg, #00d4ff, #00ff88, #ff6b35);
     }
     
     .metric-card:hover {
-        box-shadow: 0 12px 35px rgba(255, 179, 209, 0.4);
+        box-shadow: 0 12px 35px rgba(0, 212, 255, 0.4);
         transform: translateY(-5px);
-        border-color: #ff9ac4;
+        border-color: #00ff88;
     }
     
     /* Advisory Boxes */
     .advisory-box {
-        background: linear-gradient(135deg, #ffffff 0%, #fff0f5 100%);
+        background: linear-gradient(135deg, #2d2d2d 0%, #404040 100%);
         padding: 2rem;
-        border-radius: 20px;
-        border: 3px solid #ffb3d1;
+        border-radius: 15px;
+        border: 2px solid #00d4ff;
         margin: 1.5rem 0;
-        box-shadow: 0 8px 25px rgba(255, 179, 209, 0.3);
+        box-shadow: 0 8px 25px rgba(0, 212, 255, 0.3);
         position: relative;
         overflow: hidden;
+        color: #ffffff;
     }
     
     .advisory-box::before {
@@ -174,18 +178,18 @@ st.markdown("""
         left: 0;
         right: 0;
         height: 4px;
-        background: linear-gradient(90deg, #ff6b9d, #4ecdc4, #45b7d1);
+        background: linear-gradient(90deg, #00d4ff, #00ff88, #ff6b35);
     }
     
     .advisory-box h3 {
-        color: #2d3748;
+        color: #ffffff;
         font-weight: 700;
         margin-bottom: 1rem;
         font-size: 1.3rem;
     }
     
     .advisory-box p {
-        color: #4a5568;
+        color: #e0e0e0;
         line-height: 1.7;
         margin-bottom: 0.8rem;
         font-weight: 500;
@@ -259,69 +263,71 @@ st.markdown("""
     
     /* Tables */
     .stDataFrame {
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
-        border-radius: 20px;
-        border: 3px solid #ffb3d1;
+        background: linear-gradient(135deg, #2d2d2d 0%, #404040 100%);
+        border-radius: 15px;
+        border: 2px solid #00d4ff;
         overflow: hidden;
-        box-shadow: 0 8px 25px rgba(255, 179, 209, 0.3);
+        box-shadow: 0 8px 25px rgba(0, 212, 255, 0.3);
+        color: #ffffff;
     }
     
     /* Charts */
     .js-plotly-plot {
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
-        border-radius: 20px;
-        border: 3px solid #ffb3d1;
-        box-shadow: 0 8px 25px rgba(255, 179, 209, 0.3);
+        background: linear-gradient(135deg, #2d2d2d 0%, #404040 100%);
+        border-radius: 15px;
+        border: 2px solid #00d4ff;
+        box-shadow: 0 8px 25px rgba(0, 212, 255, 0.3);
     }
     
     /* Progress Bar */
     .stProgress > div > div > div > div {
-        background: linear-gradient(90deg, #ff6b9d, #4ecdc4);
+        background: linear-gradient(90deg, #00d4ff, #00ff88);
         border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(255, 107, 157, 0.3);
+        box-shadow: 0 2px 8px rgba(0, 212, 255, 0.3);
     }
     
     /* Selectbox */
     .stSelectbox > div > div {
-        background-color: #ffffff;
-        border: 2px solid #ffb3d1;
-        border-radius: 15px;
-        box-shadow: 0 2px 8px rgba(255, 179, 209, 0.2);
+        background-color: #2d2d2d;
+        border: 2px solid #00d4ff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.2);
+        color: #ffffff;
     }
     
     /* Text Input */
     .stTextInput > div > div > input {
-        background-color: #ffffff;
-        border: 2px solid #ffb3d1;
-        border-radius: 15px;
-        box-shadow: 0 2px 8px rgba(255, 179, 209, 0.2);
-        color: #2d3748;
+        background-color: #2d2d2d;
+        border: 2px solid #00d4ff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.2);
+        color: #ffffff;
         font-weight: 500;
     }
     
     /* Number Input */
     .stNumberInput > div > div > input {
-        background-color: #ffffff;
-        border: 2px solid #ffb3d1;
-        border-radius: 15px;
-        box-shadow: 0 2px 8px rgba(255, 179, 209, 0.2);
-        color: #2d3748;
+        background-color: #2d2d2d;
+        border: 2px solid #00d4ff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.2);
+        color: #ffffff;
         font-weight: 500;
     }
     
     /* Checkbox */
     .stCheckbox > div > div > div {
-        background-color: #ffffff;
-        border: 2px solid #ffb3d1;
+        background-color: #2d2d2d;
+        border: 2px solid #00d4ff;
         border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(255, 179, 209, 0.2);
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.2);
     }
     
     /* Slider */
     .stSlider > div > div > div > div {
-        background: linear-gradient(90deg, #ff6b9d, #4ecdc4);
+        background: linear-gradient(90deg, #00d4ff, #00ff88);
         border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(255, 107, 157, 0.3);
+        box-shadow: 0 2px 8px rgba(0, 212, 255, 0.3);
     }
     
     /* Expander */
@@ -418,24 +424,63 @@ class AIQuantApp:
         with st.sidebar:
             st.header("📊 Input Parameters")
             
+            # Thai stocks with current prices
+            st.markdown("**🇹🇭 Thai Stocks (Current Prices)**")
+            thai_stocks = {
+                "SET": "SET.BK",  # SET Index
+                "SET50": "SET50.BK",  # SET50 Index  
+                "PTT": "PTT.BK",  # PTT Public Company Limited
+                "SCB": "SCB.BK",  # Siam Commercial Bank
+                "KBANK": "KBANK.BK",  # Kasikorn Bank
+                "CPALL": "CPALL.BK",  # CP All Public Company Limited
+                "ADVANC": "ADVANC.BK",  # Advanced Info Service
+                "AOT": "AOT.BK",  # Airports of Thailand
+                "BDMS": "BDMS.BK",  # Bangkok Dusit Medical Services
+                "CPF": "CPF.BK"  # Charoen Pokphand Foods
+            }
+            
+            # Display current prices for Thai stocks
+            for name, symbol_code in thai_stocks.items():
+                try:
+                    import yfinance as yf
+                    ticker = yf.Ticker(symbol_code)
+                    info = ticker.info
+                    current_price = info.get('regularMarketPrice', 'N/A')
+                    change = info.get('regularMarketChange', 0)
+                    change_pct = info.get('regularMarketChangePercent', 0)
+                    
+                    if current_price != 'N/A':
+                        color = "🟢" if change >= 0 else "🔴"
+                        st.markdown(f"{color} **{name}**: {current_price:.2f} ({change:+.2f}, {change_pct:+.2f}%)")
+                except:
+                    st.markdown(f"❌ **{name}**: Price unavailable")
+            
+            st.markdown("---")
+            
             # Symbol input with autocomplete suggestions
             symbol = st.text_input(
                 "Stock Symbol",
-                value="AAPL",
-                help="Enter stock symbol (e.g., AAPL, GOOGL, MSFT, TSLA)"
+                value="PTT.BK",
+                help="Enter stock symbol (e.g., PTT.BK, SCB.BK, AAPL, MSFT)"
             )
             
             # Popular symbols quick select
             st.markdown("**Popular Symbols:**")
             col1, col2 = st.columns(2)
             with col1:
+                if st.button("PTT.BK", use_container_width=True):
+                    symbol = "PTT.BK"
+                if st.button("SCB.BK", use_container_width=True):
+                    symbol = "SCB.BK"
+                if st.button("SET.BK", use_container_width=True):
+                    symbol = "SET.BK"
+            with col2:
+                if st.button("KBANK.BK", use_container_width=True):
+                    symbol = "KBANK.BK"
+                if st.button("CPALL.BK", use_container_width=True):
+                    symbol = "CPALL.BK"
                 if st.button("AAPL", use_container_width=True):
                     symbol = "AAPL"
-                if st.button("GOOGL", use_container_width=True):
-                    symbol = "GOOGL"
-            with col2:
-                if st.button("MSFT", use_container_width=True):
-                    symbol = "MSFT"
                 if st.button("TSLA", use_container_width=True):
                     symbol = "TSLA"
             
