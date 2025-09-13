@@ -1,3 +1,7 @@
+# AI Quant - Environment Variables Template
+# Copy this file to .env and fill in your actual values
+# NEVER commit .env file to version control!
+
 # OpenRouter API Configuration
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_MODEL=openrouter/auto
@@ -17,3 +21,9 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 # Optional: Custom model settings
 MAX_TOKENS=500
 TEMPERATURE=0.7
+
+# Security Note:
+# - Keep your .env file private
+# - Never share API keys
+# - Use strong, unique API keys
+# - Rotate keys regularly
