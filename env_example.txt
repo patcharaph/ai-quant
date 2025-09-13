@@ -1,0 +1,19 @@
+# OpenRouter API Configuration
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_MODEL=openrouter/auto
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+# Available Models (choose one):
+# openrouter/auto - Auto-select best model
+# openai/gpt-4o-mini - GPT-4o Mini (recommended)
+# openai/gpt-3.5-turbo - GPT-3.5 Turbo
+# anthropic/claude-3-haiku - Claude 3 Haiku
+# anthropic/claude-3-sonnet - Claude 3 Sonnet
+# google/gemini-pro - Gemini Pro
+# meta-llama/llama-3.1-8b-instruct - Llama 3.1 8B
+# mistralai/mixtral-8x7b-instruct - Mixtral 8x7B
+# qwen/qwen-2.5-7b-instruct - Qwen 2.5 7B
+
+# Optional: Custom model settings
+MAX_TOKENS=500
+TEMPERATURE=0.7

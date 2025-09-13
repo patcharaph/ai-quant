@@ -1,0 +1,32 @@
+[theme]
+# Primary colors
+primaryColor = "#1a1a1a"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#fafafa"
+textColor = "#1a1a1a"
+
+# Font
+font = "Inter"
+
+[server]
+# Server configuration
+port = 8501
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+# Browser configuration
+gatherUsageStats = false
+serverAddress = "localhost"
+
+[client]
+# Client configuration
+showErrorDetails = true
+toolbarMode = "minimal"
+
+[runner]
+# Runner configuration
+magicEnabled = true
+installTracer = false
+fixMatplotlib = true
