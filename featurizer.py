@@ -133,32 +133,109 @@ class Featurizer:
         
         return df
     
-    def create_target_variable(self, data, horizon_days, target_type='price'):
+    def create_target_variable(self, data, horizon_days, target_type='price', target_threshold=None):
         """
-        Create target variable for prediction
+        Create target variable for prediction with clear labeling formulas
         
         Args:
             data (pd.DataFrame): Data with features
             horizon_days (int): Prediction horizon in days
-            target_type (str): 'price' or 'return'
+            target_type (str): 'price', 'return', 'hit_probability', or 'log_return'
+            target_threshold (float): Threshold for hit probability calculation (in percentage)
             
         Returns:
-            pd.DataFrame: Data with target variable
+            pd.DataFrame: Data with target variable and labeling metadata
         """
         df = data.copy()
         
+        # Log the target creation formula
+        logger.info(f"📊 Creating target variable: {target_type}, horizon={horizon_days} days")
+        
         if target_type == 'price':
-            # Target is the price at t+h
+            # Target: y = close[t+h] (absolute price at horizon)
             df['target'] = df['close'].shift(-horizon_days)
+            formula = f"y = close[t+{horizon_days}]"
             self.target_column = 'target'
+            
         elif target_type == 'return':
-            # Target is the return from t to t+h
+            # Target: y = (close[t+h] - close[t]) / close[t] * 100 (percentage return)
             df['target'] = (df['close'].shift(-horizon_days) / df['close'] - 1) * 100
+            formula = f"y = (close[t+{horizon_days}] - close[t]) / close[t] * 100"
             self.target_column = 'target'
+            
+        elif target_type == 'log_return':
+            # Target: y = log(close[t+h] / close[t]) (log return)
+            df['target'] = np.log(df['close'].shift(-horizon_days) / df['close'])
+            formula = f"y = log(close[t+{horizon_days}] / close[t])"
+            self.target_column = 'target'
+            
+        elif target_type == 'hit_probability':
+            # Target: y = 1 if return >= threshold, 0 otherwise
+            if target_threshold is None:
+                target_threshold = 3.0  # Default 3% threshold
+                
+            returns = (df['close'].shift(-horizon_days) / df['close'] - 1) * 100
+            df['target'] = (returns >= target_threshold).astype(int)
+            formula = f"y = 1 if return >= {target_threshold}%, 0 otherwise"
+            self.target_column = 'target'
+            
+            # Store hit probability metadata
+            hit_rate = df['target'].mean()
+            logger.info(f"🎯 Hit probability target: {hit_rate:.2%} of samples above {target_threshold}% threshold")
+            
         else:
-            raise ValueError("target_type must be 'price' or 'return'")
+            raise ValueError("target_type must be 'price', 'return', 'log_return', or 'hit_probability'")
+        
+        # Store target metadata
+        df.attrs['target_formula'] = formula
+        df.attrs['target_type'] = target_type
+        df.attrs['horizon_days'] = horizon_days
+        df.attrs['target_threshold'] = target_threshold
+        
+        logger.info(f"✅ Target formula: {formula}")
         
         return df
+    
+    def calculate_hit_probability(self, predictions, actual_returns, threshold=3.0):
+        """
+        Calculate hit probability for predictions
+        
+        Args:
+            predictions (np.array): Model predictions
+            actual_returns (np.array): Actual returns (in percentage)
+            threshold (float): Threshold for hit definition (in percentage)
+            
+        Returns:
+            dict: Hit probability metrics
+        """
+        # Convert predictions to returns if needed
+        if len(predictions) != len(actual_returns):
+            raise ValueError("Predictions and actual returns must have same length")
+        
+        # Calculate hit probability
+        hits = (actual_returns >= threshold).astype(int)
+        hit_prob = hits.mean()
+        
+        # Calculate confidence intervals
+        n = len(hits)
+        se = np.sqrt(hit_prob * (1 - hit_prob) / n)
+        ci_95 = 1.96 * se
+        
+        metrics = {
+            'hit_probability': hit_prob,
+            'hit_rate': hit_prob,
+            'total_samples': n,
+            'hits': hits.sum(),
+            'threshold': threshold,
+            'standard_error': se,
+            'ci_95_lower': max(0, hit_prob - ci_95),
+            'ci_95_upper': min(1, hit_prob + ci_95),
+            'confidence_interval_95': (max(0, hit_prob - ci_95), min(1, hit_prob + ci_95))
+        }
+        
+        logger.info(f"🎯 Hit Probability: {hit_prob:.2%} (95% CI: {metrics['ci_95_lower']:.2%} - {metrics['ci_95_upper']:.2%})")
+        
+        return metrics
     
     def check_data_leakage(self, X, y, lookback_window, horizon_days, split_indices):
         """Check for data leakage in the dataset"""
@@ -187,20 +264,22 @@ class Featurizer:
         logger.info(f"✅ Data leakage checks: {self.data_leakage_checks}")
         return self.data_leakage_checks
 
-    def make_supervised(self, data, lookback_window, horizon_days, target_type='price'):
+    def make_supervised(self, data, lookback_window, horizon_days, target_type='price', use_walk_forward=False):
         """
-        Create supervised learning dataset with windowing
+        Create supervised learning dataset with proper time ordering and no data leakage
         
         Args:
             data (pd.DataFrame): OHLCV data
             lookback_window (int): Number of past days to use as features
             horizon_days (int): Prediction horizon
             target_type (str): 'price' or 'return'
+            use_walk_forward (bool): Use walk-forward validation instead of simple time split
             
         Returns:
             tuple: (X_train, y_train, X_val, y_val, X_test, y_test, metadata)
         """
         logger.info(f"🔄 Creating supervised dataset: lookback={lookback_window}, horizon={horizon_days}")
+        logger.info(f"📊 Target type: {target_type}, Walk-forward: {use_walk_forward}")
         
         # Create features
         df_features = self.create_base_features(data)
@@ -216,10 +295,10 @@ class Featurizer:
         if len(df_clean) < lookback_window + horizon_days:
             raise ValueError(f"Insufficient data: need at least {lookback_window + horizon_days} days")
         
-        # Create sequences with proper time ordering
+        # Create sequences with proper time ordering (NO FUTURE DATA LEAKAGE)
         X, y = [], []
         for i in range(lookback_window, len(df_clean) - horizon_days + 1):
-            # Features: past lookback_window days (no future data)
+            # Features: past lookback_window days ONLY (no future data)
             X.append(df_clean[feature_cols].iloc[i-lookback_window:i].values)
             # Target: future value at horizon_days ahead
             y.append(df_clean['target'].iloc[i-1])
@@ -227,7 +306,18 @@ class Featurizer:
         X = np.array(X)
         y = np.array(y)
         
-        # Time-based split
+        if use_walk_forward:
+            # Walk-forward validation: sliding window approach
+            return self._create_walk_forward_splits(X, y, lookback_window, horizon_days, feature_cols)
+        else:
+            # Simple time-based split
+            return self._create_time_splits(X, y, lookback_window, horizon_days, feature_cols)
+    
+    def _create_time_splits(self, X, y, lookback_window, horizon_days, feature_cols):
+        """Create time-based train/val/test splits with proper scaling"""
+        logger.info("📅 Creating time-based splits...")
+        
+        # Time-based split (no shuffling!)
         train_ratio = self.config.get('train_ratio', 0.7)
         val_ratio = self.config.get('val_ratio', 0.15)
         
@@ -241,8 +331,9 @@ class Featurizer:
         X_test = X[n_train+n_val:]
         y_test = y[n_train+n_val:]
         
-        # Scale features (fit only on training data - CRITICAL for no data leakage)
-        logger.info("🔧 Fitting scaler on training data only...")
+        # CRITICAL: Scale features (fit only on training data - NO DATA LEAKAGE)
+        logger.info("🔧 Fitting scaler on training data only (no data leakage)...")
+        self.scaler = StandardScaler()
         X_train_scaled = self.scaler.fit_transform(X_train.reshape(-1, X_train.shape[-1])).reshape(X_train.shape)
         X_val_scaled = self.scaler.transform(X_val.reshape(-1, X_val.shape[-1])).reshape(X_val.shape)
         X_test_scaled = self.scaler.transform(X_test.reshape(-1, X_test.shape[-1])).reshape(X_test.shape)
@@ -260,14 +351,95 @@ class Featurizer:
             'target_column': self.target_column,
             'lookback_window': lookback_window,
             'horizon_days': horizon_days,
-            'target_type': target_type,
+            'target_type': 'price' if self.target_column == 'target' else 'return',
             'n_features': len(feature_cols),
             'data_leakage_checks': leakage_checks,
             'n_samples': len(X),
             'n_train': len(X_train),
             'n_val': len(X_val),
             'n_test': len(X_test),
-            'scaler': self.scaler
+            'scaler': self.scaler,
+            'split_type': 'time_based'
+        }
+        
+        return (X_train_scaled, y_train, X_val_scaled, y_val, 
+                X_test_scaled, y_test, metadata)
+    
+    def _create_walk_forward_splits(self, X, y, lookback_window, horizon_days, feature_cols):
+        """Create walk-forward validation splits"""
+        logger.info("🚶 Creating walk-forward validation splits...")
+        
+        # Walk-forward parameters
+        train_months = self.config.get('walk_forward_train_months', 36)
+        test_months = self.config.get('walk_forward_test_months', 6)
+        step_months = self.config.get('walk_forward_step_months', 6)
+        
+        # Convert months to approximate trading days
+        train_days = int(train_months * 21)  # ~21 trading days per month
+        test_days = int(test_months * 21)
+        step_days = int(step_months * 21)
+        
+        # Create walk-forward splits
+        splits = []
+        start_idx = 0
+        
+        while start_idx + train_days + test_days < len(X):
+            train_end = start_idx + train_days
+            test_start = train_end
+            test_end = test_start + test_days
+            
+            splits.append({
+                'train_start': start_idx,
+                'train_end': train_end,
+                'test_start': test_start,
+                'test_end': test_end
+            })
+            
+            start_idx += step_days
+        
+        if not splits:
+            logger.warning("⚠️  Not enough data for walk-forward validation, falling back to time split")
+            return self._create_time_splits(X, y, lookback_window, horizon_days, feature_cols)
+        
+        # Use the first split for initial training
+        first_split = splits[0]
+        X_train = X[first_split['train_start']:first_split['train_end']]
+        y_train = y[first_split['train_start']:first_split['train_end']]
+        X_val = X[first_split['test_start']:first_split['test_end']]
+        y_val = y[first_split['test_start']:first_split['test_end']]
+        
+        # Use remaining data for test
+        X_test = X[first_split['test_end']:]
+        y_test = y[first_split['test_end']:]
+        
+        # Scale features (fit only on training data)
+        logger.info("🔧 Fitting scaler on training data only (walk-forward)...")
+        self.scaler = StandardScaler()
+        X_train_scaled = self.scaler.fit_transform(X_train.reshape(-1, X_train.shape[-1])).reshape(X_train.shape)
+        X_val_scaled = self.scaler.transform(X_val.reshape(-1, X_val.shape[-1])).reshape(X_val.shape)
+        X_test_scaled = self.scaler.transform(X_test.reshape(-1, X_test.shape[-1])).reshape(X_test.shape)
+        
+        # Store feature information
+        self.feature_columns = feature_cols
+        
+        # Create metadata
+        metadata = {
+            'feature_columns': feature_cols,
+            'target_column': self.target_column,
+            'lookback_window': lookback_window,
+            'horizon_days': horizon_days,
+            'target_type': 'price' if self.target_column == 'target' else 'return',
+            'n_features': len(feature_cols),
+            'n_samples': len(X),
+            'n_train': len(X_train),
+            'n_val': len(X_val),
+            'n_test': len(X_test),
+            'scaler': self.scaler,
+            'split_type': 'walk_forward',
+            'walk_forward_splits': splits,
+            'train_months': train_months,
+            'test_months': test_months,
+            'step_months': step_months
         }
         
         return (X_train_scaled, y_train, X_val_scaled, y_val, 

@@ -20,10 +20,10 @@ from backtester import Backtester, SignalGenerator, BacktestAnalyzer
 from llm_advisor import LLMAdvisor
 import config
 import os
-from dotenv import load_dotenv
+from env_manager import get_env_config
 
 # Load environment variables
-load_dotenv()
+env_config = get_env_config()
 
 # Page configuration
 st.set_page_config(
@@ -33,17 +33,36 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS - Dark Professional Theme
+# Custom CSS - Dark Professional Theme with Thai Support
 st.markdown("""
 <style>
-    /* Import Google Fonts */
+    /* Import Google Fonts with Thai Support */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap');
     
     /* Global Styles */
     .stApp {
         background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
-        font-family: 'Inter', sans-serif;
+        font-family: 'Inter', 'Noto Sans Thai', sans-serif;
         color: #ffffff;
+    }
+    
+    /* Thai Text Support */
+    .thai-text {
+        font-family: 'Noto Sans Thai', 'Inter', sans-serif;
+        font-weight: 400;
+    }
+    
+    .thai-title {
+        font-family: 'Noto Sans Thai', 'Inter', sans-serif;
+        font-weight: 600;
+        font-size: 1.2rem;
+    }
+    
+    .thai-subtitle {
+        font-family: 'Noto Sans Thai', 'Inter', sans-serif;
+        font-weight: 500;
+        font-size: 1rem;
     }
     
     /* Main Header */

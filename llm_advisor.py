@@ -5,20 +5,39 @@ LLM-powered Investment Advisor using OpenRouter API
 import os
 import requests
 import json
-from typing import Dict, Any, Optional
+import time
+import logging
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 class LLMAdvisor:
     """LLM-powered investment advisor for human-readable recommendations"""
     
     def __init__(self, config=None):
         self.config = config or {}
-        self.api_key = os.getenv('OPENROUTER_API_KEY')
-        self.model = os.getenv('OPENROUTER_MODEL', 'openrouter/auto')
-        self.base_url = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
-        self.max_tokens = int(os.getenv('MAX_TOKENS', '500'))
-        self.temperature = float(os.getenv('TEMPERATURE', '0.7'))
+        from env_manager import get_env_config
+        env_config = get_env_config()
+        
+        self.api_key = env_config.OPENROUTER_API_KEY
+        self.model = env_config.OPENROUTER_MODEL
+        self.base_url = env_config.OPENROUTER_BASE_URL
+        self.max_tokens = env_config.MAX_TOKENS
+        self.temperature = env_config.TEMPERATURE
+        
+        # Retry configuration
+        self.max_retries = 3
+        self.retry_delay = 1  # seconds
+        self.timeout = 30  # seconds
+        
+        # Logging configuration
+        self.log_dir = Path('llm_logs')
+        self.log_dir.mkdir(exist_ok=True)
         
         # Available models with auto-selection
         self.available_models = {
@@ -33,9 +52,201 @@ class LLMAdvisor:
             'Qwen 2.5 7B': 'qwen/qwen-2.5-7b-instruct'
         }
         
+        # System prompts for different contexts
+        self.system_prompts = {
+            'educational': self._get_educational_prompt(),
+            'analysis': self._get_analysis_prompt(),
+            'risk_assessment': self._get_risk_assessment_prompt()
+        }
+        
+    def _get_educational_prompt(self) -> str:
+        """Get educational system prompt"""
+        return """You are an educational AI assistant specializing in stock market analysis and financial education. Your role is to:
+
+1. **Educational Focus**: Provide educational insights about stock market concepts, not investment advice
+2. **Risk Awareness**: Always emphasize the risks and uncertainties in stock investing
+3. **No Recommendations**: Never provide specific buy/sell recommendations or investment advice
+4. **Educational Context**: Explain market concepts, technical analysis, and risk factors
+5. **Disclaimers**: Always include appropriate disclaimers about investment risks
+
+Key Guidelines:
+- Use educational language and explain concepts clearly
+- Focus on teaching rather than advising
+- Emphasize the importance of diversification and risk management
+- Mention that past performance doesn't guarantee future results
+- Encourage users to consult with financial professionals
+- Be objective and balanced in your analysis
+
+Remember: You are an educational tool, not a financial advisor."""
+
+    def _get_analysis_prompt(self) -> str:
+        """Get analysis system prompt"""
+        return """You are an AI assistant that provides objective analysis of stock market data and predictions. Your role is to:
+
+1. **Objective Analysis**: Provide neutral, data-driven analysis of market information
+2. **Context Explanation**: Help users understand what the data means
+3. **Risk Assessment**: Highlight potential risks and limitations
+4. **Educational Value**: Explain the methodology and assumptions behind predictions
+5. **Balanced Perspective**: Present both positive and negative aspects
+
+Key Guidelines:
+- Focus on explaining the data and its implications
+- Avoid making specific investment recommendations
+- Highlight uncertainties and limitations
+- Use clear, accessible language
+- Provide context for the analysis
+- Encourage critical thinking
+
+Remember: Provide analysis, not advice."""
+
+    def _get_risk_assessment_prompt(self) -> str:
+        """Get risk assessment system prompt"""
+        return """You are an AI assistant focused on risk assessment and financial education. Your role is to:
+
+1. **Risk Identification**: Identify and explain various types of investment risks
+2. **Risk Quantification**: Help users understand risk metrics and their implications
+3. **Risk Mitigation**: Suggest general risk management principles (not specific strategies)
+4. **Educational Focus**: Teach users about risk concepts and management
+5. **Cautionary Guidance**: Emphasize the importance of understanding risks
+
+Key Guidelines:
+- Always prioritize risk awareness
+- Explain risk metrics in simple terms
+- Highlight the potential for loss
+- Suggest general risk management principles
+- Emphasize the importance of diversification
+- Encourage professional consultation
+
+Remember: Focus on risk education, not risk management advice."""
+
     def is_available(self) -> bool:
         """Check if LLM service is available"""
         return self.api_key is not None and self.api_key != 'your_openrouter_api_key_here'
+    
+    def _make_api_request(self, messages: List[Dict], context: str = 'educational') -> Optional[Dict]:
+        """Make API request with retry logic and error handling"""
+        
+        if not self.is_available():
+            logger.error("LLM service not available - missing API key")
+            return None
+        
+        # Get appropriate system prompt
+        system_prompt = self.system_prompts.get(context, self.system_prompts['educational'])
+        
+        # Prepare request
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://ai-quant-stock-predictor.streamlit.app',
+            'X-Title': 'AI Quant Stock Predictor'
+        }
+        
+        payload = {
+            'model': self.model,
+            'messages': [{'role': 'system', 'content': system_prompt}] + messages,
+            'max_tokens': self.max_tokens,
+            'temperature': self.temperature,
+            'stream': False
+        }
+        
+        # Retry logic
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                logger.info(f"🔄 Making LLM API request (attempt {attempt + 1}/{self.max_retries})")
+                
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=self.timeout
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    logger.info("✅ LLM API request successful")
+                    return result
+                else:
+                    error_msg = f"API request failed with status {response.status_code}: {response.text}"
+                    logger.warning(f"⚠️  {error_msg}")
+                    last_error = error_msg
+                    
+            except requests.exceptions.Timeout:
+                error_msg = f"Request timeout after {self.timeout} seconds"
+                logger.warning(f"⏰ {error_msg}")
+                last_error = error_msg
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"Request error: {str(e)}"
+                logger.warning(f"❌ {error_msg}")
+                last_error = error_msg
+                
+            except Exception as e:
+                error_msg = f"Unexpected error: {str(e)}"
+                logger.error(f"💥 {error_msg}")
+                last_error = error_msg
+            
+            # Wait before retry
+            if attempt < self.max_retries - 1:
+                wait_time = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                logger.info(f"⏳ Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+        
+        logger.error(f"❌ All retry attempts failed. Last error: {last_error}")
+        return None
+    
+    def _log_interaction(self, symbol: str, context: str, input_data: Dict, 
+                        response: Optional[Dict], error: Optional[str] = None):
+        """Log LLM interaction for analysis and debugging"""
+        
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'symbol': symbol,
+            'context': context,
+            'model': self.model,
+            'input_data': input_data,
+            'response': response,
+            'error': error,
+            'api_key_masked': f"{self.api_key[:8]}..." if self.api_key else None
+        }
+        
+        # Save to file
+        log_file = self.log_dir / f"llm_interactions_{datetime.now().strftime('%Y%m%d')}.jsonl"
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        
+        logger.info(f"📝 LLM interaction logged to {log_file}")
+    
+    def _apply_guardrails(self, response_text: str) -> str:
+        """Apply guardrails to LLM response"""
+        
+        # Remove any specific buy/sell recommendations
+        forbidden_phrases = [
+            'buy this stock',
+            'sell this stock',
+            'you should buy',
+            'you should sell',
+            'I recommend buying',
+            'I recommend selling',
+            'definitely buy',
+            'definitely sell',
+            'guaranteed return',
+            'sure thing',
+            'no risk'
+        ]
+        
+        response_lower = response_text.lower()
+        for phrase in forbidden_phrases:
+            if phrase in response_lower:
+                logger.warning(f"⚠️  Guardrail triggered: '{phrase}' detected in response")
+                # Replace with educational disclaimer
+                response_text = response_text.replace(phrase, f"[Educational analysis - not investment advice]")
+        
+        # Add educational disclaimer if not present
+        if 'not investment advice' not in response_lower and 'educational' not in response_lower:
+            response_text += "\n\n⚠️ **Important**: This analysis is for educational purposes only and should not be considered as investment advice. Please consult with a qualified financial advisor before making any investment decisions."
+        
+        return response_text
     
     def generate_human_advice(self, 
                             symbol: str,
@@ -48,7 +259,7 @@ class LLMAdvisor:
                             market_context: str = "general",
                             selected_model: str = None) -> Dict[str, str]:
         """
-        Generate human-readable investment advice using LLM
+        Generate human-readable educational analysis using LLM with enhanced guardrails
         
         Args:
             symbol: Stock symbol
@@ -59,39 +270,88 @@ class LLMAdvisor:
             model_performance: Model performance metrics
             backtest_metrics: Backtesting results
             market_context: Market context description
+            selected_model: Specific model to use
+            context: Analysis context ('educational', 'analysis', 'risk_assessment')
             
         Returns:
-            dict: Human-readable advice in Thai and English
+            dict: Educational analysis in Thai and English
         """
         if not self.is_available():
+            logger.warning("LLM service not available, using fallback")
             return self._fallback_advice(predicted_return, target_return, hit_probability)
         
         try:
+            # Prepare input data for logging
+            input_data = {
+                'symbol': symbol,
+                'predicted_return': predicted_return,
+                'target_return': target_return,
+                'hit_probability': hit_probability,
+                'expected_return': expected_return,
+                'model_performance': model_performance,
+                'backtest_metrics': backtest_metrics,
+                'market_context': market_context,
+                'selected_model': selected_model,
+                'context': context
+            }
+            
             # Use selected model or default
             model_to_use = selected_model if selected_model else self.model
             
             # Prepare context for LLM
-            context = self._prepare_context(
+            llm_context = self._prepare_context(
                 symbol, predicted_return, target_return, hit_probability,
                 expected_return, model_performance, backtest_metrics, market_context
             )
             
-            # Generate Thai advice
-            thai_advice = self._call_llm(context, language="thai", model=model_to_use)
+            # Generate Thai analysis
+            thai_messages = [{
+                'role': 'user', 
+                'content': f"Please provide an educational analysis in Thai for the following stock data:\n\n{llm_context}\n\nFocus on explaining the concepts and risks, not providing investment advice."
+            }]
             
-            # Generate English advice
-            english_advice = self._call_llm(context, language="english", model=model_to_use)
+            thai_response = self._make_api_request(thai_messages, context)
+            thai_analysis = self._extract_response_text(thai_response) if thai_response else "ไม่สามารถสร้างการวิเคราะห์ได้"
+            thai_analysis = self._apply_guardrails(thai_analysis)
+            
+            # Generate English analysis
+            english_messages = [{
+                'role': 'user', 
+                'content': f"Please provide an educational analysis in English for the following stock data:\n\n{llm_context}\n\nFocus on explaining the concepts and risks, not providing investment advice."
+            }]
+            
+            english_response = self._make_api_request(english_messages, context)
+            english_analysis = self._extract_response_text(english_response) if english_response else "Unable to generate analysis"
+            english_analysis = self._apply_guardrails(english_analysis)
+            
+            # Log interactions
+            self._log_interaction(symbol, context, input_data, thai_response)
+            self._log_interaction(symbol, context, input_data, english_response)
             
             return {
-                'thai': thai_advice,
-                'english': english_advice,
+                'thai': thai_analysis,
+                'english': english_analysis,
                 'llm_enhanced': True,
-                'model_used': model_to_use
+                'model_used': model_to_use,
+                'context': context,
+                'timestamp': datetime.now().isoformat()
             }
             
         except Exception as e:
-            print(f"LLM API Error: {e}")
+            logger.error(f"LLM API Error: {e}")
+            self._log_interaction(symbol, context, input_data, None, str(e))
             return self._fallback_advice(predicted_return, target_return, hit_probability)
+    
+    def _extract_response_text(self, response: Optional[Dict]) -> str:
+        """Extract text from LLM API response"""
+        if not response or 'choices' not in response:
+            return "No response received"
+        
+        try:
+            return response['choices'][0]['message']['content']
+        except (KeyError, IndexError) as e:
+            logger.error(f"Error extracting response text: {e}")
+            return "Error extracting response"
     
     def _prepare_context(self, symbol, predicted_return, target_return, hit_probability,
                         expected_return, model_performance, backtest_metrics, market_context):

@@ -5,6 +5,7 @@ Backtesting Engine for Trading Strategies
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 import warnings
 import logging
 warnings.filterwarnings('ignore')
@@ -14,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class SignalGenerator:
-    """Generate trading signals based on predictions"""
+    """Generate trading signals based on predictions with enhanced rules"""
     
     def __init__(self, config=None):
         self.config = config or {}
@@ -37,6 +38,12 @@ class SignalGenerator:
                 'entry_rule': 'hit_probability >= p_min',
                 'exit_rule': 'hit_probability < p_min or end_of_period', 
                 'description': 'Buy when hit probability >= threshold, sell when below threshold'
+            },
+            'D': {
+                'name': 'No-Overlap Strategy',
+                'entry_rule': 'predicted_return >= target_return and no_active_position',
+                'exit_rule': 'predicted_return < target_return or end_of_period',
+                'description': 'Buy when conditions met and no active position, sell when conditions not met'
             }
         }
     
@@ -82,11 +89,178 @@ class SignalGenerator:
         
         return signals
 
-class Backtester:
-    """Main backtesting engine"""
+class FeeCalculator:
+    """Calculate trading fees and slippage with Thai market specifics"""
     
     def __init__(self, config=None):
         self.config = config or {}
+        
+        # Thai market fee structure (as of 2024)
+        self.fee_structures = {
+            'thai_retail': {
+                'brokerage_fee_bp': 15,  # 0.15% brokerage fee
+                'vat_bp': 7,  # 7% VAT on brokerage fee
+                'settlement_fee_bp': 0.1,  # 0.001% settlement fee
+                'min_fee_thb': 20,  # Minimum fee 20 THB
+                'max_fee_thb': 1000,  # Maximum fee 1000 THB
+                'slippage_bp': 10  # 0.10% slippage
+            },
+            'thai_institutional': {
+                'brokerage_fee_bp': 5,  # 0.05% brokerage fee
+                'vat_bp': 7,  # 7% VAT on brokerage fee
+                'settlement_fee_bp': 0.1,  # 0.001% settlement fee
+                'min_fee_thb': 50,  # Minimum fee 50 THB
+                'max_fee_thb': 5000,  # Maximum fee 5000 THB
+                'slippage_bp': 5  # 0.05% slippage
+            },
+            'us_retail': {
+                'brokerage_fee_bp': 0,  # Commission-free
+                'spread_bp': 5,  # 0.05% spread
+                'slippage_bp': 3  # 0.03% slippage
+            }
+        }
+        
+        # Default fee structure
+        self.default_fee_structure = self.fee_structures.get(
+            self.config.get('fee_structure', 'thai_retail'), 
+            self.fee_structures['thai_retail']
+        )
+    
+    def calculate_fees(self, trade_value: float, trade_type: str = 'buy', 
+                      symbol: str = None, timestamp: pd.Timestamp = None) -> Dict:
+        """Calculate total fees for a trade"""
+        # Get fee structure (can be overridden per symbol/time)
+        fee_structure = self._get_fee_structure(symbol, timestamp)
+        
+        # Calculate brokerage fee
+        brokerage_fee = trade_value * (fee_structure['brokerage_fee_bp'] / 10000)
+        
+        # Apply minimum/maximum fee limits
+        brokerage_fee = max(fee_structure['min_fee_thb'], 
+                           min(brokerage_fee, fee_structure['max_fee_thb']))
+        
+        # Calculate VAT on brokerage fee
+        vat = brokerage_fee * (fee_structure['vat_bp'] / 100)
+        
+        # Calculate settlement fee
+        settlement_fee = trade_value * (fee_structure['settlement_fee_bp'] / 10000)
+        
+        # Calculate slippage
+        slippage = trade_value * (fee_structure['slippage_bp'] / 10000)
+        
+        # Total fees
+        total_fees = brokerage_fee + vat + settlement_fee + slippage
+        
+        fee_breakdown = {
+            'trade_value': trade_value,
+            'trade_type': trade_type,
+            'brokerage_fee': brokerage_fee,
+            'vat': vat,
+            'settlement_fee': settlement_fee,
+            'slippage': slippage,
+            'total_fees': total_fees,
+            'fee_rate_bp': (total_fees / trade_value) * 10000 if trade_value > 0 else 0,
+            'symbol': symbol,
+            'timestamp': timestamp
+        }
+        
+        return fee_breakdown
+    
+    def _get_fee_structure(self, symbol: str = None, timestamp: pd.Timestamp = None) -> Dict:
+        """Get fee structure for specific symbol and time"""
+        # Check for symbol-specific fees
+        if symbol and f'fees_{symbol}' in self.config:
+            return self.config[f'fees_{symbol}']
+        
+        # Check for time-specific fees
+        if timestamp and 'fee_schedule' in self.config:
+            for period in self.config['fee_schedule']:
+                if period['start'] <= timestamp <= period['end']:
+                    return period['fees']
+        
+        return self.default_fee_structure
+
+
+class TradeLedger:
+    """Maintain detailed trade-by-trade ledger"""
+    
+    def __init__(self):
+        self.trades = []
+        self.positions = {}
+        self.cash_flow = []
+    
+    def add_trade(self, trade_data: Dict):
+        """Add a trade to the ledger"""
+        trade_id = len(self.trades) + 1
+        trade_data['trade_id'] = trade_id
+        trade_data['timestamp'] = pd.Timestamp.now()
+        
+        self.trades.append(trade_data)
+        
+        # Update positions
+        symbol = trade_data['symbol']
+        if symbol not in self.positions:
+            self.positions[symbol] = {'quantity': 0, 'avg_price': 0, 'total_cost': 0}
+        
+        position = self.positions[symbol]
+        
+        if trade_data['action'] == 'buy':
+            # Add to position
+            new_quantity = position['quantity'] + trade_data['quantity']
+            new_total_cost = position['total_cost'] + trade_data['total_cost']
+            position['quantity'] = new_quantity
+            position['total_cost'] = new_total_cost
+            position['avg_price'] = new_total_cost / new_quantity if new_quantity > 0 else 0
+            
+        elif trade_data['action'] == 'sell':
+            # Reduce position
+            position['quantity'] -= trade_data['quantity']
+            if position['quantity'] < 0:
+                logger.warning(f"⚠️  Short position detected for {symbol}")
+    
+    def get_trade_summary(self) -> Dict:
+        """Get summary of all trades"""
+        if not self.trades:
+            return {'total_trades': 0}
+        
+        df_trades = pd.DataFrame(self.trades)
+        
+        summary = {
+            'total_trades': len(self.trades),
+            'buy_trades': len(df_trades[df_trades['action'] == 'buy']),
+            'sell_trades': len(df_trades[df_trades['action'] == 'sell']),
+            'total_volume': df_trades['quantity'].sum(),
+            'total_fees': df_trades['fees'].sum(),
+            'avg_trade_size': df_trades['quantity'].mean(),
+            'symbols_traded': df_trades['symbol'].nunique(),
+            'trading_days': df_trades['date'].nunique()
+        }
+        
+        return summary
+    
+    def export_to_csv(self, filename: str = None) -> str:
+        """Export trade ledger to CSV"""
+        if not self.trades:
+            logger.warning("No trades to export")
+            return None
+        
+        if filename is None:
+            filename = f"trade_ledger_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        df_trades = pd.DataFrame(self.trades)
+        df_trades.to_csv(filename, index=False)
+        
+        logger.info(f"📊 Trade ledger exported to {filename}")
+        return filename
+
+
+class Backtester:
+    """Main backtesting engine with enhanced features"""
+    
+    def __init__(self, config=None):
+        self.config = config or {}
+        self.fee_calculator = FeeCalculator(config)
+        self.trade_ledger = TradeLedger()
         self.fee_bp = self.config.get('fee_bp', 15)  # 0.15%
         self.slippage_bp = self.config.get('slippage_bp', 10)  # 0.10%
         self.holding_rule = self.config.get('holding_rule', 'hold_to_horizon')
