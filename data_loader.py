@@ -12,7 +12,9 @@ import re
 import os
 import time
 import json
+import requests
 from pathlib import Path
+from typing import Optional, Dict, Any, Tuple
 warnings.filterwarnings('ignore')
 
 class DataLoader:
@@ -45,6 +47,11 @@ class DataLoader:
         # Retry configuration
         self.max_retries = 3
         self.retry_delay = 1  # seconds
+        self.timeout = 30  # seconds
+        
+        # Rate limiting configuration
+        self.rate_limit_delay = 2  # seconds between requests
+        self.last_request_time = 0
     
     def validate_symbol(self, symbol):
         """
@@ -113,6 +120,37 @@ class DataLoader:
             print(f"⚠️  Error loading cache: {e}")
             return None
     
+    def _apply_rate_limiting(self):
+        """Apply rate limiting to prevent API throttling"""
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+        
+        if time_since_last_request < self.rate_limit_delay:
+            sleep_time = self.rate_limit_delay - time_since_last_request
+            print(f"⏳ Rate limiting: waiting {sleep_time:.1f} seconds...")
+            time.sleep(sleep_time)
+        
+        self.last_request_time = time.time()
+    
+    def _test_symbol_availability(self, symbol: str) -> bool:
+        """Test if symbol is available and accessible"""
+        try:
+            self._apply_rate_limiting()
+            ticker = yf.Ticker(symbol)
+            
+            # Try to get basic info first
+            info = ticker.info
+            if not info or 'symbol' not in info:
+                return False
+            
+            # Try to get recent data
+            data = ticker.history(period='1d')
+            return not data.empty
+            
+        except Exception as e:
+            print(f"⚠️  Symbol {symbol} test failed: {str(e)[:50]}...")
+            return False
+    
     def _save_to_cache(self, data, cache_path):
         """Save data to cache"""
         try:
@@ -123,7 +161,7 @@ class DataLoader:
 
     def fetch_ohlcv(self, symbol, start_date=None, end_date=None, interval="1d"):
         """
-        Fetch OHLCV data for a given symbol with retry logic and caching
+        Fetch OHLCV data for a given symbol with enhanced retry logic and caching
         
         Args:
             symbol (str): Stock symbol (e.g., 'PTT', 'AAPL') - will be normalized to .BK
@@ -155,7 +193,11 @@ class DataLoader:
             if cached_data is not None:
                 return cached_data
             
-            # Fetch data with retry logic
+            # Test symbol availability first
+            if not self._test_symbol_availability(symbol):
+                raise ValueError(f"สัญลักษณ์ {original_symbol} ไม่สามารถเข้าถึงได้หรือไม่มีข้อมูล")
+            
+            # Fetch data with enhanced retry logic
             data = None
             last_error = None
             
@@ -163,42 +205,64 @@ class DataLoader:
                 try:
                     print(f"🔄 Fetching data for {symbol} (attempt {attempt + 1}/{self.max_retries})")
                     
+                    # Apply rate limiting
+                    self._apply_rate_limiting()
+                    
                     ticker = yf.Ticker(symbol)
                     data = ticker.history(start=start_date, end=end_date, interval=interval)
                     
                     if not data.empty:
+                        print(f"✅ Successfully fetched {len(data)} rows for {symbol}")
                         break
                     else:
                         print(f"⚠️  No data returned for {symbol} in date range {start_date} to {end_date}")
                         
-                        # Try with different date range if no data
+                        # Try with different date ranges if no data
                         if attempt == 0:
-                            start_date_alt = (datetime.now(self.bangkok_tz) - timedelta(days=5*365)).strftime('%Y-%m-%d')
-                            print(f"🔄 Trying alternative date range: {start_date_alt} to {end_date}")
+                            # Try with shorter period first
+                            start_date_alt = (datetime.now(self.bangkok_tz) - timedelta(days=365)).strftime('%Y-%m-%d')
+                            print(f"🔄 Trying shorter period: {start_date_alt} to {end_date}")
                             data = ticker.history(start=start_date_alt, end=end_date, interval=interval)
                             
                             if not data.empty:
-                                start_date = start_date_alt  # Update for caching
+                                start_date = start_date_alt
+                                break
+                        elif attempt == 1:
+                            # Try with even shorter period
+                            start_date_alt = (datetime.now(self.bangkok_tz) - timedelta(days=90)).strftime('%Y-%m-%d')
+                            print(f"🔄 Trying 3-month period: {start_date_alt} to {end_date}")
+                            data = ticker.history(start=start_date_alt, end=end_date, interval=interval)
+                            
+                            if not data.empty:
+                                start_date = start_date_alt
                                 break
                         
                 except Exception as e:
                     last_error = e
-                    print(f"⚠️  Attempt {attempt + 1} failed: {str(e)}")
+                    error_type = type(e).__name__
+                    print(f"⚠️  Attempt {attempt + 1} failed ({error_type}): {str(e)[:100]}...")
                     
                     if attempt < self.max_retries - 1:
-                        print(f"⏳ Waiting {self.retry_delay} seconds before retry...")
-                        time.sleep(self.retry_delay)
-                        self.retry_delay *= 2  # Exponential backoff
+                        wait_time = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                        print(f"⏳ Waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
             
             if data is None or data.empty:
                 error_msg = f"ไม่สามารถดึงข้อมูลสำหรับ {original_symbol} ได้"
                 if last_error:
-                    error_msg += f" (Error: {str(last_error)})"
+                    error_msg += f" (Error: {str(last_error)[:100]}...)"
                 else:
                     error_msg += " (ไม่มีข้อมูลในช่วงเวลาที่ระบุ)"
                 
                 print(f"❌ {error_msg}")
                 print(f"💡 ตรวจสอบสัญลักษณ์หุ้นและช่วงวันที่ หรือลองใช้สัญลักษณ์อื่น")
+                
+                # Provide helpful suggestions
+                if '.BK' in symbol:
+                    print(f"💡 สำหรับหุ้นไทย ลองใช้: {symbol}")
+                else:
+                    print(f"💡 ลองใช้สัญลักษณ์อื่น เช่น: PTT.BK, SCB.BK, KBANK.BK")
+                
                 raise ValueError(error_msg)
             
             # Clean and process data
@@ -213,34 +277,59 @@ class DataLoader:
             # Re-raise validation errors as-is
             raise
         except Exception as e:
-            error_msg = f"เกิดข้อผิดพลาดในการดึงข้อมูลสำหรับ {original_symbol}: {str(e)}"
+            error_msg = f"เกิดข้อผิดพลาดในการดึงข้อมูลสำหรับ {original_symbol}: {str(e)[:100]}..."
             print(f"❌ {error_msg}")
             raise ValueError(error_msg)
     
     def _process_fetched_data(self, data, symbol):
-        """Process and clean fetched data"""
-        # Clean column names
-        data.columns = [col.lower() for col in data.columns]
-        
-        # Convert to Asia/Bangkok timezone
-        if hasattr(data.index, 'tz') and data.index.tz is not None:
-            data.index = data.index.tz_convert(self.bangkok_tz)
-        else:
-            data.index = data.index.tz_localize('UTC').tz_convert(self.bangkok_tz)
-        
-        # Add timezone info to metadata
-        data.attrs['timezone'] = 'Asia/Bangkok'
-        data.attrs['symbol'] = symbol
-        data.attrs['fetched_at'] = datetime.now(self.bangkok_tz).isoformat()
-        
-        # Validate data quality
-        validation_results = self.validate_data(data)
-        if not validation_results['is_valid']:
-            print("⚠️  Data quality warnings:")
-            for warning in validation_results['warnings']:
-                print(f"   - {warning}")
-        
-        return data
+        """Process and clean fetched data with enhanced error handling"""
+        try:
+            # Clean column names
+            data.columns = [col.lower() for col in data.columns]
+            
+            # Ensure we have the required columns
+            required_cols = ['open', 'high', 'low', 'close', 'volume']
+            missing_cols = [col for col in required_cols if col not in data.columns]
+            if missing_cols:
+                print(f"⚠️  Missing columns: {missing_cols}")
+                # Try to map common variations
+                column_mapping = {
+                    'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume',
+                    'OPEN': 'open', 'HIGH': 'high', 'LOW': 'low', 'CLOSE': 'close', 'VOLUME': 'volume'
+                }
+                for old_col, new_col in column_mapping.items():
+                    if old_col in data.columns and new_col not in data.columns:
+                        data[new_col] = data[old_col]
+            
+            # Convert to Asia/Bangkok timezone
+            if hasattr(data.index, 'tz') and data.index.tz is not None:
+                data.index = data.index.tz_convert(self.bangkok_tz)
+            else:
+                try:
+                    data.index = data.index.tz_localize('UTC').tz_convert(self.bangkok_tz)
+                except:
+                    # If timezone conversion fails, assume it's already in Bangkok time
+                    data.index = data.index.tz_localize(self.bangkok_tz)
+            
+            # Add timezone info to metadata
+            data.attrs['timezone'] = 'Asia/Bangkok'
+            data.attrs['symbol'] = symbol
+            data.attrs['fetched_at'] = datetime.now(self.bangkok_tz).isoformat()
+            data.attrs['data_source'] = 'yfinance'
+            
+            # Validate data quality
+            validation_results = self.validate_data(data)
+            if not validation_results['is_valid']:
+                print("⚠️  Data quality warnings:")
+                for warning in validation_results['warnings']:
+                    print(f"   - {warning}")
+            
+            return data
+            
+        except Exception as e:
+            print(f"⚠️  Error processing data: {e}")
+            # Return data as-is if processing fails
+            return data
     
     def validate_data(self, data, min_years=3):
         """
@@ -302,7 +391,7 @@ class DataLoader:
     
     def clean_data(self, data):
         """
-        Clean and preprocess the data
+        Clean and preprocess the data with enhanced error handling
         
         Args:
             data (pd.DataFrame): Raw OHLCV data
@@ -310,36 +399,50 @@ class DataLoader:
         Returns:
             pd.DataFrame: Cleaned data
         """
-        cleaned_data = data.copy()
-        
-        # Remove rows with missing critical data
-        critical_cols = ['open', 'high', 'low', 'close', 'volume']
-        cleaned_data = cleaned_data.dropna(subset=critical_cols)
-        
-        # Remove rows with zero volume (if too many)
-        zero_volume_pct = (cleaned_data['volume'] == 0).sum() / len(cleaned_data) * 100
-        if zero_volume_pct < 20:  # Only remove if not too many
-            cleaned_data = cleaned_data[cleaned_data['volume'] > 0]
-        
-        # Ensure high >= low
-        cleaned_data = cleaned_data[cleaned_data['high'] >= cleaned_data['low']]
-        
-        # Ensure high >= open, close and low <= open, close
-        cleaned_data = cleaned_data[
-            (cleaned_data['high'] >= cleaned_data['open']) &
-            (cleaned_data['high'] >= cleaned_data['close']) &
-            (cleaned_data['low'] <= cleaned_data['open']) &
-            (cleaned_data['low'] <= cleaned_data['close'])
-        ]
-        
-        # Forward fill any remaining missing values
-        cleaned_data = cleaned_data.fillna(method='ffill')
-        
-        return cleaned_data
+        try:
+            cleaned_data = data.copy()
+            
+            # Remove rows with missing critical data
+            critical_cols = ['open', 'high', 'low', 'close', 'volume']
+            available_cols = [col for col in critical_cols if col in cleaned_data.columns]
+            
+            if not available_cols:
+                print("⚠️  No critical columns found for cleaning")
+                return cleaned_data
+            
+            cleaned_data = cleaned_data.dropna(subset=available_cols)
+            
+            # Remove rows with zero volume (if not too many)
+            if 'volume' in cleaned_data.columns:
+                zero_volume_pct = (cleaned_data['volume'] == 0).sum() / len(cleaned_data) * 100
+                if zero_volume_pct < 20:  # Only remove if not too many
+                    cleaned_data = cleaned_data[cleaned_data['volume'] > 0]
+            
+            # Ensure price relationships are valid
+            if all(col in cleaned_data.columns for col in ['high', 'low']):
+                cleaned_data = cleaned_data[cleaned_data['high'] >= cleaned_data['low']]
+            
+            if all(col in cleaned_data.columns for col in ['high', 'open', 'close', 'low']):
+                cleaned_data = cleaned_data[
+                    (cleaned_data['high'] >= cleaned_data['open']) &
+                    (cleaned_data['high'] >= cleaned_data['close']) &
+                    (cleaned_data['low'] <= cleaned_data['open']) &
+                    (cleaned_data['low'] <= cleaned_data['close'])
+                ]
+            
+            # Forward fill any remaining missing values
+            cleaned_data = cleaned_data.fillna(method='ffill')
+            
+            print(f"✅ Cleaned data: {len(data)} -> {len(cleaned_data)} rows")
+            return cleaned_data
+            
+        except Exception as e:
+            print(f"⚠️  Error cleaning data: {e}")
+            return data
     
     def get_data_summary(self, data):
         """
-        Get summary statistics of the data
+        Get summary statistics of the data with enhanced error handling
         
         Args:
             data (pd.DataFrame): OHLCV data
@@ -347,22 +450,75 @@ class DataLoader:
         Returns:
             dict: Summary statistics
         """
-        summary = {
-            'start_date': data.index[0].strftime('%Y-%m-%d'),
-            'end_date': data.index[-1].strftime('%Y-%m-%d'),
-            'total_days': len(data),
-            'trading_days': len(data[data['volume'] > 0]),
-            'years_covered': len(data) / 252,
-            'price_range': {
-                'min': data['close'].min(),
-                'max': data['close'].max(),
-                'current': data['close'].iloc[-1]
-            },
-            'volume_stats': {
-                'mean': data['volume'].mean(),
-                'median': data['volume'].median(),
-                'std': data['volume'].std()
+        try:
+            summary = {
+                'start_date': data.index[0].strftime('%Y-%m-%d') if len(data) > 0 else 'N/A',
+                'end_date': data.index[-1].strftime('%Y-%m-%d') if len(data) > 0 else 'N/A',
+                'total_days': len(data),
+                'trading_days': len(data[data['volume'] > 0]) if 'volume' in data.columns else len(data),
+                'years_covered': len(data) / 252,
+                'price_range': {},
+                'volume_stats': {}
             }
-        }
+            
+            # Price range statistics
+            if 'close' in data.columns:
+                summary['price_range'] = {
+                    'min': float(data['close'].min()),
+                    'max': float(data['close'].max()),
+                    'current': float(data['close'].iloc[-1]) if len(data) > 0 else 0
+                }
+            
+            # Volume statistics
+            if 'volume' in data.columns:
+                summary['volume_stats'] = {
+                    'mean': float(data['volume'].mean()),
+                    'median': float(data['volume'].median()),
+                    'std': float(data['volume'].std())
+                }
+            
+            return summary
+            
+        except Exception as e:
+            print(f"⚠️  Error generating summary: {e}")
+            return {
+                'start_date': 'N/A',
+                'end_date': 'N/A',
+                'total_days': len(data) if data is not None else 0,
+                'trading_days': 0,
+                'years_covered': 0,
+                'price_range': {'min': 0, 'max': 0, 'current': 0},
+                'volume_stats': {'mean': 0, 'median': 0, 'std': 0}
+            }
+    
+    def get_available_symbols(self) -> Dict[str, str]:
+        """
+        Get list of available Thai stock symbols
         
-        return summary
+        Returns:
+            dict: Dictionary of symbol mappings
+        """
+        return self.thai_symbols.copy()
+    
+    def test_connection(self) -> bool:
+        """
+        Test connection to data source
+        
+        Returns:
+            bool: True if connection is working
+        """
+        try:
+            # Test with a simple US stock first
+            test_symbol = 'AAPL'
+            print(f"🔍 Testing connection with {test_symbol}...")
+            
+            if self._test_symbol_availability(test_symbol):
+                print("✅ Connection test successful")
+                return True
+            else:
+                print("❌ Connection test failed")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Connection test error: {e}")
+            return False
