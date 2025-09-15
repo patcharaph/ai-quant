@@ -238,7 +238,7 @@ class Featurizer:
         return metrics
     
     def check_data_leakage(self, X, y, lookback_window, horizon_days, split_indices):
-        """Check for data leakage in the dataset"""
+        """Check for data leakage in the dataset with enhanced validation"""
         logger.info("🔍 Checking for data leakage...")
         
         # Check 1: Ensure no future data in features
@@ -248,6 +248,11 @@ class Featurizer:
             if future_check:
                 logger.warning("⚠️  Potential future data detected in features")
                 self.data_leakage_checks['future_data_in_features'] = True
+            
+            # Check for target variable in features (common leakage)
+            if hasattr(self, 'feature_columns') and self.target_column in self.feature_columns:
+                logger.error("❌ Target variable found in feature columns - DATA LEAKAGE!")
+                self.data_leakage_checks['target_in_features'] = True
         
         # Check 2: Validate lookback window
         if len(X) > 0 and X.shape[1] != lookback_window:
@@ -260,6 +265,22 @@ class Featurizer:
             if train_end >= val_end:
                 logger.error("❌ Invalid time split: training data overlaps with validation")
                 self.data_leakage_checks['time_split_validation'] = False
+        
+        # Check 4: Validate scaler fitting (critical for preventing leakage)
+        if hasattr(self, 'scaler') and hasattr(self.scaler, 'scale_'):
+            # Check if scaler was fitted on training data only
+            if not hasattr(self, '_scaler_fitted_on_train_only'):
+                logger.warning("⚠️  Scaler fitting validation not recorded")
+                self.data_leakage_checks['scaler_fitted_on_test'] = True
+            else:
+                logger.info("✅ Scaler fitted on training data only")
+        
+        # Check 5: Validate horizon gap (no overlap between features and target)
+        if horizon_days <= 0:
+            logger.error("❌ Invalid horizon: must be positive to prevent overlap")
+            self.data_leakage_checks['horizon_validation'] = False
+        else:
+            logger.info(f"✅ Valid horizon gap: {horizon_days} days")
         
         logger.info(f"✅ Data leakage checks: {self.data_leakage_checks}")
         return self.data_leakage_checks
@@ -334,9 +355,20 @@ class Featurizer:
         # CRITICAL: Scale features (fit only on training data - NO DATA LEAKAGE)
         logger.info("🔧 Fitting scaler on training data only (no data leakage)...")
         self.scaler = StandardScaler()
-        X_train_scaled = self.scaler.fit_transform(X_train.reshape(-1, X_train.shape[-1])).reshape(X_train.shape)
+        
+        # Fit scaler ONLY on training data
+        X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
+        self.scaler.fit(X_train_reshaped)
+        
+        # Mark that scaler was fitted on training data only
+        self._scaler_fitted_on_train_only = True
+        
+        # Transform all datasets using the same scaler
+        X_train_scaled = self.scaler.transform(X_train_reshaped).reshape(X_train.shape)
         X_val_scaled = self.scaler.transform(X_val.reshape(-1, X_val.shape[-1])).reshape(X_val.shape)
         X_test_scaled = self.scaler.transform(X_test.reshape(-1, X_test.shape[-1])).reshape(X_test.shape)
+        
+        logger.info("✅ Scaler fitted on training data only - no data leakage")
         
         # Store feature information
         self.feature_columns = feature_cols
@@ -415,9 +447,20 @@ class Featurizer:
         # Scale features (fit only on training data)
         logger.info("🔧 Fitting scaler on training data only (walk-forward)...")
         self.scaler = StandardScaler()
-        X_train_scaled = self.scaler.fit_transform(X_train.reshape(-1, X_train.shape[-1])).reshape(X_train.shape)
+        
+        # Fit scaler ONLY on training data
+        X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
+        self.scaler.fit(X_train_reshaped)
+        
+        # Mark that scaler was fitted on training data only
+        self._scaler_fitted_on_train_only = True
+        
+        # Transform all datasets using the same scaler
+        X_train_scaled = self.scaler.transform(X_train_reshaped).reshape(X_train.shape)
         X_val_scaled = self.scaler.transform(X_val.reshape(-1, X_val.shape[-1])).reshape(X_val.shape)
         X_test_scaled = self.scaler.transform(X_test.reshape(-1, X_test.shape[-1])).reshape(X_test.shape)
+        
+        logger.info("✅ Scaler fitted on training data only (walk-forward) - no data leakage")
         
         # Store feature information
         self.feature_columns = feature_cols

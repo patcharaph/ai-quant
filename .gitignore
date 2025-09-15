@@ -54,6 +54,27 @@ Thumbs.db
 
 # Streamlit
 .streamlit/secrets.toml
+!.streamlit/secrets.toml.example
+.streamlit/config.toml
+
+# Environment files
+*.env
+.env
+.env.*
+!.env.example
+.env.local
+.env.production
+.env.staging
+.env.development
+.env.test
+
+# API Keys and Secrets
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.json
+credentials.json
 
 # Jupyter Notebook
 .ipynb_checkpoints

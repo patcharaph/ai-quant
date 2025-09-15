@@ -265,9 +265,9 @@ class Backtester:
         self.slippage_bp = self.config.get('slippage_bp', 10)  # 0.10%
         self.holding_rule = self.config.get('holding_rule', 'hold_to_horizon')
         
-    def run_backtest(self, prices, signals, horizon_days, start_date=None, end_date=None):
+    def run_backtest(self, prices, signals, horizon_days, start_date=None, end_date=None, scheme='A'):
         """
-        Run backtest simulation
+        Run backtest simulation with realistic entry/exit rules
         
         Args:
             prices: Price series
@@ -275,6 +275,7 @@ class Backtester:
             horizon_days: Holding period
             start_date: Backtest start date
             end_date: Backtest end date
+            scheme: Trading scheme ('A', 'B', 'C', 'D')
             
         Returns:
             tuple: (trades_df, equity_curve, metrics)
@@ -304,6 +305,9 @@ class Backtester:
         logger.info(f"📊 Entry/Exit Rules: {self.entry_exit_rules.get(scheme, {})}")
         logger.info(f"💰 Starting capital: ${portfolio_value:,.2f}")
         logger.info(f"💸 Transaction costs: fee={self.fee_bp}bp, slippage={self.slippage_bp}bp")
+        
+        # Get signal generator for this scheme
+        signal_generator = SignalGenerator(self.config)
         
         for i, (date, row) in enumerate(signals.iterrows()):
             current_price = row['price']
@@ -378,13 +382,13 @@ class Backtester:
                      position, fee_bp, slippage_bp, signal_scheme=None, 
                      predicted_return=None, hit_probability=None):
         """Create a detailed trade record with entry/exit reasoning"""
-        # Calculate costs
-        entry_cost = entry_price * (1 + fee_bp/10000 + slippage_bp/10000)
-        exit_cost = exit_price * (1 - fee_bp/10000 - slippage_bp/10000)
+        # Calculate costs using fee calculator
+        trade_value = entry_price * position
+        fee_breakdown = self.fee_calculator.calculate_fees(trade_value, 'buy')
         
         # Calculate returns
-        gross_return = (exit_cost - entry_cost) / entry_cost
-        net_return = gross_return  # Costs already included
+        gross_return = (exit_price - entry_price) / entry_price
+        net_return = gross_return - (fee_breakdown['total_fees'] / trade_value)
         
         # Create detailed trade record
         trade_record = {
@@ -397,10 +401,13 @@ class Backtester:
             'net_return': net_return,
             'return_pct': net_return * 100,
             'holding_days': (exit_date - entry_date).days,
-            'entry_cost': entry_cost,
-            'exit_cost': exit_cost,
-            'fee_bp': fee_bp,
-            'slippage_bp': slippage_bp,
+            'trade_value': trade_value,
+            'total_fees': fee_breakdown['total_fees'],
+            'brokerage_fee': fee_breakdown['brokerage_fee'],
+            'vat': fee_breakdown['vat'],
+            'settlement_fee': fee_breakdown['settlement_fee'],
+            'slippage': fee_breakdown['slippage'],
+            'fee_rate_bp': fee_breakdown['fee_rate_bp'],
             'signal_scheme': signal_scheme,
             'predicted_return': predicted_return,
             'hit_probability': hit_probability,
@@ -409,7 +416,7 @@ class Backtester:
         }
         
         # Add to trade ledger
-        self.trade_ledger.append(trade_record)
+        self.trade_ledger.add_trade(trade_record)
         logger.info(f"📝 Trade logged: {entry_date} -> {exit_date}, Return: {net_return*100:.2f}%")
         
         return trade_record
@@ -487,8 +494,51 @@ class Backtester:
             'Profit_Factor': profit_factor,
             'Hit_Ratio': hit_ratio * 100,
             'N_Trades': len(trades_df),
-            'Turnover': turnover
+            'Turnover': turnover,
+            'Total_Fees': trades_df['total_fees'].sum() if not trades_df.empty else 0,
+            'Avg_Holding_Days': trades_df['holding_days'].mean() if not trades_df.empty else 0
         }
+    
+    def export_backtest_report(self, trades_df, equity_df, metrics, filename=None):
+        """Export comprehensive backtest report"""
+        import json
+        from datetime import datetime
+        
+        if filename is None:
+            filename = f"backtest_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        # Create comprehensive report
+        report = {
+            'backtest_info': {
+                'timestamp': datetime.now().isoformat(),
+                'scheme': getattr(self, 'current_scheme', 'A'),
+                'horizon_days': getattr(self, 'current_horizon', 1),
+                'starting_capital': 10000,
+                'fee_structure': self.fee_calculator.default_fee_structure
+            },
+            'performance_metrics': metrics,
+            'trade_summary': {
+                'total_trades': len(trades_df),
+                'winning_trades': len(trades_df[trades_df['net_return'] > 0]) if not trades_df.empty else 0,
+                'losing_trades': len(trades_df[trades_df['net_return'] <= 0]) if not trades_df.empty else 0,
+                'total_fees': trades_df['total_fees'].sum() if not trades_df.empty else 0,
+                'avg_holding_days': trades_df['holding_days'].mean() if not trades_df.empty else 0
+            },
+            'equity_curve_summary': {
+                'start_value': equity_df['portfolio_value'].iloc[0] if not equity_df.empty else 0,
+                'end_value': equity_df['portfolio_value'].iloc[-1] if not equity_df.empty else 0,
+                'max_value': equity_df['portfolio_value'].max() if not equity_df.empty else 0,
+                'min_value': equity_df['portfolio_value'].min() if not equity_df.empty else 0,
+                'total_return': ((equity_df['portfolio_value'].iloc[-1] / equity_df['portfolio_value'].iloc[0]) - 1) * 100 if not equity_df.empty else 0
+            }
+        }
+        
+        # Save report
+        with open(filename, 'w') as f:
+            json.dump(report, f, indent=2, default=str)
+        
+        logger.info(f"📊 Backtest report exported to {filename}")
+        return filename
 
 class WalkForwardBacktester:
     """Walk-forward backtesting"""
