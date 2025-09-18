@@ -430,8 +430,21 @@ class Featurizer:
             start_idx += step_days
         
         if not splits:
-            logger.warning("⚠️  Not enough data for walk-forward validation, falling back to time split")
-            return self._create_time_splits(X, y, lookback_window, horizon_days, feature_cols)
+            # Create a minimal walk-forward style split for small datasets
+            logger.warning("⚠️  Not enough data for walk-forward validation, creating minimal split")
+            n = len(X)
+            if n < 5:
+                # Degenerate case; fall back safely
+                return self._create_time_splits(X, y, lookback_window, horizon_days, feature_cols)
+            train_end = max(1, int(n * 0.6))
+            test_start = train_end
+            test_end = max(test_start + 1, int(n * 0.8))
+            splits = [{
+                'train_start': 0,
+                'train_end': train_end,
+                'test_start': test_start,
+                'test_end': test_end
+            }]
         
         # Use the first split for initial training
         first_split = splits[0]
@@ -464,7 +477,11 @@ class Featurizer:
         
         # Store feature information
         self.feature_columns = feature_cols
-        
+
+        # Check for data leakage similar to time-based split
+        split_indices = [0, first_split['train_end'], first_split['test_end'], len(X)]
+        leakage_checks = self.check_data_leakage(X, y, lookback_window, horizon_days, split_indices)
+
         # Create metadata
         metadata = {
             'feature_columns': feature_cols,
@@ -479,6 +496,7 @@ class Featurizer:
             'n_test': len(X_test),
             'scaler': self.scaler,
             'split_type': 'walk_forward',
+            'data_leakage_checks': leakage_checks,
             'walk_forward_splits': splits,
             'train_months': train_months,
             'test_months': test_months,

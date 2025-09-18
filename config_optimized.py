@@ -9,7 +9,7 @@ import os
 import json
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from functools import lru_cache
 import logging
 
@@ -56,26 +56,24 @@ class OptimizedConfig:
         return self._env_cache[key]
     
     def _load_config(self):
-        """Load configuration from file"""
+        """Load configuration from file without holding file locks (Windows-safe)"""
         try:
             if self.config_file.exists():
-                # Import the config module
-                import importlib.util
-                spec = importlib.util.spec_from_file_location("config", self.config_file)
-                config_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(config_module)
-                
-                # Extract configuration dictionaries
-                for attr_name in dir(config_module):
-                    if not attr_name.startswith('_') and attr_name.isupper():
-                        attr_value = getattr(config_module, attr_name)
-                        if isinstance(attr_value, dict):
-                            self._config_cache[attr_name] = attr_value
-                
+                # Read and exec into a temporary namespace to avoid import locks
+                namespace: Dict[str, Any] = {}
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    code = f.read()
+                exec(compile(code, str(self.config_file), 'exec'), {}, namespace)
+
+                # Extract configuration dictionaries (UPPERCASE only)
+                for attr_name, attr_value in namespace.items():
+                    if isinstance(attr_name, str) and attr_name.isupper() and isinstance(attr_value, dict):
+                        self._config_cache[attr_name] = attr_value
+
                 logger.info(f"✅ Configuration loaded from {self.config_file}")
             else:
                 logger.warning(f"⚠️  Configuration file {self.config_file} not found")
-                
+
         except Exception as e:
             logger.error(f"❌ Failed to load configuration: {e}")
     

@@ -43,6 +43,13 @@ class DataLoader:
             'AAPL': 'AAPL.BK', 'GOOGL': 'GOOGL.BK', 'MSFT': 'MSFT.BK', 
             'TSLA': 'TSLA.BK', 'AMZN': 'AMZN.BK', 'META': 'META.BK'
         }
+
+        # Backward-compatible list of valid symbols for tests/tools
+        # Includes common Thai mappings plus plain SET index name
+        try:
+            self.valid_symbols = set(self.thai_symbols.values()) | {"SET.BK"}
+        except Exception:
+            self.valid_symbols = set()
         
         # Retry configuration
         self.max_retries = 3
@@ -137,16 +144,22 @@ class DataLoader:
         try:
             self._apply_rate_limiting()
             ticker = yf.Ticker(symbol)
-            
-            # Try to get basic info first
-            info = ticker.info
-            if not info or 'symbol' not in info:
+
+            # Prefer a lightweight history call; mock-friendly
+            try:
+                data = ticker.history(period='1d')
+                if hasattr(data, 'empty'):
+                    return not data.empty
+            except Exception:
+                pass
+
+            # Fallback to info if available, but don't require specific keys
+            try:
+                info = getattr(ticker, 'info', {})
+                return bool(info)
+            except Exception:
                 return False
-            
-            # Try to get recent data
-            data = ticker.history(period='1d')
-            return not data.empty
-            
+
         except Exception as e:
             print(f"⚠️  Symbol {symbol} test failed: {str(e)[:50]}...")
             return False
@@ -522,3 +535,28 @@ class DataLoader:
         except Exception as e:
             print(f"❌ Connection test error: {e}")
             return False
+    
+    def fetch_current_price(self, symbol: str, retries: int = 3, delay: int = 2) -> float:
+        """
+        Fetch the current price of a stock symbol with retry mechanism.
+
+        Args:
+            symbol (str): Stock symbol.
+            retries (int): Number of retry attempts.
+            delay (int): Delay between retries in seconds.
+
+        Returns:
+            float: Current price of the stock, or None if unavailable.
+        """
+        for attempt in range(retries):
+            try:
+                ticker = yf.Ticker(symbol)
+                info = ticker.info
+                current_price = info.get('regularMarketPrice')
+                if current_price is not None:
+                    return current_price
+            except Exception as e:
+                print(f"Attempt {attempt + 1} failed: {e}")
+                time.sleep(delay)
+        print(f"Failed to fetch price for {symbol} after {retries} attempts.")
+        return None

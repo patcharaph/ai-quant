@@ -5,7 +5,7 @@ LSTM and Transformer models for time series prediction
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.models import Model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input, MultiHeadAttention, LayerNormalization, GlobalAveragePooling1D
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -30,7 +30,8 @@ class LSTMModel:
         
     def build_model(self, input_shape):
         """Build LSTM model architecture"""
-        model = Sequential()
+        # Use fully-qualified path so test patching works
+        model = tf.keras.models.Sequential()
         
         # First LSTM layer
         model.add(LSTM(
