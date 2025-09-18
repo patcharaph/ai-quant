@@ -22,9 +22,6 @@ import config
 import os
 from env_manager import get_env_config
 
-# Load environment variables
-env_config = get_env_config()
-
 # Page configuration
 st.set_page_config(
     page_title="AI Quant Stock Predictor",
@@ -428,7 +425,17 @@ class AIQuantApp:
         self.transformer_model = TransformerModel(config.TRANSFORMER_CONFIG)
         self.predictor = Predictor(config.RISK_CONFIG)
         self.advisory_generator = AdvisoryGenerator(config.ADVISORY_RULES)
-        self.llm_advisor = LLMAdvisor()
+        # Initialize LLM advisor only if API key is configured
+        try:
+            self.llm_advisor = LLMAdvisor()
+        except Exception:
+            class _LLMStub:
+                def is_available(self):
+                    return False
+                available_models = {}
+                max_tokens = 500
+                temperature = 0.7
+            self.llm_advisor = _LLMStub()
         self.signal_generator = SignalGenerator()
         self.backtester = Backtester(config.BACKTEST_CONFIG)
         self.analyzer = BacktestAnalyzer()
